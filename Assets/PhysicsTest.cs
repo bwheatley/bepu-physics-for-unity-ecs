@@ -13,11 +13,11 @@ public class PhysicsTest : MonoBehaviour
     {
         _entityManager = World.Active.GetOrCreateManager<EntityManager>();
         var e = _entityManager.CreateEntity();
-        _entityManager.AddSharedComponentData(e, new BEPUPhysicsObject { });
+        _entityManager.AddSharedComponentData(e, new PhysicsObject { });
     }
 
     private void Update()
-	{
+    {
         var val = Random.value;
         if (val > 0.75f)
         {
@@ -25,15 +25,12 @@ public class PhysicsTest : MonoBehaviour
             _entities.Add(e);
             PhysicsSystem.Add(e);
         }
-        else if(val < 0.25f)
+        else if (val < 0.25f && _entities.Count > 0)
         {
-            if(_entities.Count > 0)
-            {
-                var i = Random.Range(0, _entities.Count);
-                var e = _entities[i];
-                PhysicsSystem.Remove(e);
-                _entities.RemoveAt(i);
-            }
+            var i = Random.Range(0, _entities.Count);
+            var e = _entities[i];
+            PhysicsSystem.Remove(e);
+            _entities.RemoveAt(i);
         }
-	}
+    }
 }

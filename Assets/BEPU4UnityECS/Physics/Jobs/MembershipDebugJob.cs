@@ -8,8 +8,7 @@ namespace Unity.BEPUphysics.Jobs
 {
     public struct MembershipDebugJob : IJobParallelFor
     {
-        [ReadOnly]
-        public EntityArray EntityArray;
+        [ReadOnly] public EntityArray EntityArray;
 
         public void Execute(int index)
         {
@@ -19,10 +18,9 @@ namespace Unity.BEPUphysics.Jobs
 
     public struct MembershipDebugGroup
     {
-        [ReadOnly]
-        public SharedComponentDataArray<BEPUPhysicsObject> PhysicsObjectArray;
+        [ReadOnly] public SharedComponentDataArray<PhysicsObject> PhysicsObjectArray;
         public EntityArray EntityArray;
-        public int Length;
+        public readonly int Length;
     }
 
 }

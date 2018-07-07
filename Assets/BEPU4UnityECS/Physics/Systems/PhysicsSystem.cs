@@ -1,25 +1,44 @@
-﻿using System.Collections.Generic;
-using Unity.BEPUphysics.Jobs;
-using Unity.BEPUphysics.Components;
+﻿using Unity.BEPUphysics.Jobs;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Collections;
-using System.Linq;
 
 namespace Unity.BEPUphysics
 {
     public class PhysicsSystem : JobComponentSystem
     {
-        [Inject] private SpaceMembershipBarrier _spaceMembershipBarrier;
         [Inject] private MembershipDebugGroup _membershipDebugGroup;
-        public TimeStepSettings TimeStepSettings { get; set; }
-        private static Dictionary<Entity, byte> _membershipRequestChanges;
 
         protected override void OnCreateManager(int capacity)
         {
-            _membershipRequestChanges = new Dictionary<Entity, byte>();
+            _entitiesWithMembershipChanges = new NativeList<Entity>(Allocator.Persistent);
+            _requestedMembershipChanges = new NativeList<byte>(Allocator.Persistent);
         }
 
+        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        {
+            var membershipHandle = ScheduleMembershipChanges(inputDeps);
+            var handle = new MembershipDebugJob
+            {
+                EntityArray = _membershipDebugGroup.EntityArray,
+            }.Schedule(_membershipDebugGroup.Length, 64, membershipHandle);
+            JobHandle.ScheduleBatchedJobs();
+            return handle;
+        }
+
+        protected override void OnDestroyManager()
+        {
+            _entitiesWithMembershipChanges.Dispose();
+            _requestedMembershipChanges.Dispose();
+        }
+
+        #region Space Membership
+
+        [Inject] private PhysicsMembershipBarrier _physicsMembershipBarrier;
+        private static NativeList<Entity> _entitiesWithMembershipChanges;
+        private static NativeList<byte> _requestedMembershipChanges;
+
+        // This currently has no way to know if you've ever called ADD on it
         public static void Add(Entity entity)
         {
             TryAddRequest(entity, true);
@@ -34,54 +53,46 @@ namespace Unity.BEPUphysics
         private static void TryAddRequest(Entity entity, bool add)
         {
             byte desired = (byte)(add ? 1 : 0);
-            byte request;
-            if (_membershipRequestChanges.TryGetValue(entity, out request))
+            if (_entitiesWithMembershipChanges.Contains(entity))
             {
+                var i = _entitiesWithMembershipChanges.IndexOf(entity);
+                var request = _requestedMembershipChanges[i];
                 if (request == desired)
                     return;
                 else
-                    _membershipRequestChanges.Remove(entity);
+                {
+                    _entitiesWithMembershipChanges.RemoveAtSwapBack(i);
+                    _requestedMembershipChanges.RemoveAtSwapBack(i);
+                }
             }
             else
             {
-                _membershipRequestChanges.Add(entity, desired);
+                _entitiesWithMembershipChanges.Add(entity);
+                _requestedMembershipChanges.Add(desired);
             }
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        private JobHandle ScheduleMembershipChanges(JobHandle inputDeps)
         {
-            var spaceMembershipHandle = RunSpaceMembershipJob(inputDeps);
-            var membershipDebugHandle = new MembershipDebugJob
+            JobHandle membershipHandle = inputDeps;
+            if (_entitiesWithMembershipChanges.Length > 0)
             {
-                EntityArray = _membershipDebugGroup.EntityArray
-            }.Schedule(_membershipDebugGroup.Length, 64, spaceMembershipHandle);
-            JobHandle.ScheduleBatchedJobs();
-            return membershipDebugHandle;
-        }
-
-        private JobHandle RunSpaceMembershipJob(JobHandle inputDeps)
-        {
-            JobHandle spaceMembershipHandle = inputDeps;
-            if (_membershipRequestChanges.Count > 0)
-            {
-                var entities = _membershipRequestChanges.Keys.ToArray();
-                var adds = _membershipRequestChanges.Values.ToArray();
-                var spaceMembershipJob = new SpaceMembershipJob
+                EntityCommandBuffer.Concurrent buffer = _physicsMembershipBarrier.CreateCommandBuffer();
+                var membershipJob = new PhysicsMembershipJob
                 {
-                    CommandBuffer = _spaceMembershipBarrier.CreateCommandBuffer(),
-                    Entities = new NativeArray<Entity>(entities, Allocator.TempJob),
-                    Adds = new NativeArray<byte>(adds, Allocator.TempJob)
+                    CommandBuffer = buffer,
+                    Entities = new NativeArray<Entity>(_entitiesWithMembershipChanges, Allocator.TempJob),
+                    Adds = new NativeArray<byte>(_requestedMembershipChanges, Allocator.TempJob),
                 };
-                spaceMembershipHandle = spaceMembershipJob.Schedule(inputDeps);
-                _membershipRequestChanges.Clear();
-                JobHandle.ScheduleBatchedJobs();
-                spaceMembershipHandle.Complete();
-                spaceMembershipJob.Entities.Dispose();
-                spaceMembershipJob.Adds.Dispose();
+                membershipHandle = membershipJob.Schedule(_entitiesWithMembershipChanges.Length, 32, inputDeps);
+                _entitiesWithMembershipChanges.Clear();
+                _requestedMembershipChanges.Clear();
             }
-            return spaceMembershipHandle;
+            return membershipHandle;
         }
+
+        #endregion
     }
 
-    public class SpaceMembershipBarrier : BarrierSystem { }
+    public class PhysicsMembershipBarrier : BarrierSystem { }
 }
