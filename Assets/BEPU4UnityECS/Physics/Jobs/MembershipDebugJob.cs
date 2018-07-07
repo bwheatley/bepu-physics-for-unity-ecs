@@ -22,5 +22,4 @@ namespace Unity.BEPUphysics.Jobs
         public EntityArray EntityArray;
         public readonly int Length;
     }
-
 }
