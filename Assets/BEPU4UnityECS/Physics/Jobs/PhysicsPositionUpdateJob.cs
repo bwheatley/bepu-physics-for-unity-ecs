@@ -22,6 +22,6 @@ namespace Unity.BEPUphysics.Jobs
     {
         [WriteOnly] public ComponentDataArray<Position> PositionComponents;
         [ReadOnly] public SharedComponentDataArray<PhysicsObject> PhysicsObjects;
-        [ReadOnly] public int Length;
+        public readonly int Length;
     }
 }
